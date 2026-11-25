@@ -1,0 +1,15 @@
+# Nunca enviar segredos locais, banco de desenvolvimento ou artefatos de build
+.env
+.env.local
+.env.*.local
+prisma/*.db
+prisma/*.db-journal
+prisma/schema.sqlite.prisma
+.next
+.next-build
+node_modules
+.agents
+.claude
+skills-lock.json
+*.tsbuildinfo
+marketing

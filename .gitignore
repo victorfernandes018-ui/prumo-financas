@@ -1,0 +1,12 @@
+node_modules
+.next
+.env
+.env.local
+prisma/*.db
+prisma/*.db-journal
+*.tsbuildinfo
+next-env.d.ts
+.next-build
+prisma/schema.sqlite.prisma
+.vercel
+.env*

@@ -1,0 +1,49 @@
+{
+  "name": "prumo-financas",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/prisma.mjs generate && next dev",
+    "build": "node scripts/prisma.mjs generate && node scripts/prisma.mjs deploy && next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/prisma.mjs generate",
+    "db:push": "node scripts/prisma.mjs db push",
+    "db:seed": "tsx --conditions=react-server prisma/seed.ts",
+    "db:reset": "node scripts/prisma.mjs db push --force-reset && npm run db:seed",
+    "setup": "node scripts/prisma.mjs db push && npm run db:seed"
+  },
+  "prisma": {
+    "seed": "tsx --conditions=react-server prisma/seed.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
+    "geist": "^1.7.2",
+    "lucide-react": "^1.48.0",
+    "next": "^15.5.26",
+    "next-themes": "^0.4.6",
+    "nodemailer": "^10.0.12",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "recharts": "^3.10.1",
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^26.6.3",
+    "@types/nodemailer": "^8.0.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "prisma": "^6.19.3",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,312 @@
+// Prumo — modelo de dados
+// Valores monetários são armazenados em CENTAVOS (Int) para evitar erros de ponto flutuante.
+// Campos "enum" são String para portabilidade (SQLite/PostgreSQL); os valores válidos
+// ficam centralizados em src/lib/constants.ts e são validados com Zod na API.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Produção: PostgreSQL (ex.: Neon). Em desenvolvimento, se DATABASE_URL começar com "file:",
+// scripts/prisma.mjs gera automaticamente uma variante SQLite deste schema.
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED") // conexão direta, usada nas migrações
+}
+
+model User {
+  id                  String    @id @default(cuid())
+  name                String
+  email               String    @unique
+  passwordHash        String?   // nulo quando a conta usa apenas OAuth
+  avatarUrl           String?
+  currency            String    @default("BRL")
+  monthStartDay       Int       @default(1) // primeiro dia do mês financeiro
+  theme               String    @default("system") // light | dark | system
+  notifyBills         Boolean   @default(true)
+  notifyBudget        Boolean   @default(true)
+  notifyGoals         Boolean   @default(true)
+  notifyInsights      Boolean   @default(true)
+  plan                String    @default("FREE") // FREE | PREMIUM
+  onboardingCompleted Boolean   @default(false)
+  monthlyIncome       Int?      // informado no onboarding (centavos)
+  mainGoal            String?
+  insightsRunAt       DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  sessions          Session[]
+  oauthAccounts     OAuthAccount[]
+  resetTokens       PasswordResetToken[]
+  accounts          Account[]
+  categories        Category[]
+  transactions      Transaction[]
+  creditCards       CreditCard[]
+  cardPurchases     CreditCardTransaction[]
+  recurringExpenses RecurringExpense[]
+  goals             Goal[]
+  budgets           Budget[]
+  notifications     Notification[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique // SHA-256 do token do cookie; o token em si nunca é salvo
+  userId    String
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Estrutura pronta para Google / Apple Login
+model OAuthAccount {
+  id                String   @id @default(cuid())
+  provider          String   // google | apple
+  providerAccountId String
+  userId            String
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id             String   @id @default(cuid())
+  userId         String
+  name           String
+  type           String   // CHECKING | SAVINGS | CASH | WALLET | INVESTMENT | OTHER
+  institution    String?
+  color          String   @default("#6366f1")
+  initialBalance Int      @default(0)
+  includeInTotal Boolean  @default(true)
+  archived       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions      Transaction[]      @relation("TxAccount")
+  incomingTransfers Transaction[]      @relation("TxToAccount")
+  recurringExpenses RecurringExpense[]
+
+  @@index([userId])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  icon      String   // emoji
+  color     String
+  type      String   // INCOME | EXPENSE
+  nature    String   @default("ESSENTIAL") // ESSENTIAL | SUPERFLUOUS (para despesas)
+  createdAt DateTime @default(now())
+
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions      Transaction[]
+  cardPurchases     CreditCardTransaction[]
+  recurringExpenses RecurringExpense[]
+  budget            Budget?
+
+  @@unique([userId, name, type])
+  @@index([userId])
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  userId        String
+  type          String   // INCOME | EXPENSE | TRANSFER
+  amount        Int      // centavos, sempre positivo
+  description   String
+  date          DateTime
+  categoryId    String?
+  accountId     String?  // origem (nulo em despesas de cartão até o pagamento da fatura)
+  toAccountId   String?  // destino (apenas TRANSFER)
+  paymentMethod String?  // PIX | DEBIT | CREDIT | CASH | BOLETO | TRANSFER | OTHER
+  notes         String?
+  searchText    String   @default("") // descrição + observação normalizadas (minúsculas, sem acento) para busca
+
+  // Cartão de crédito
+  creditCardId            String?
+  creditCardTransactionId String?
+  invoiceKey              String? // "AAAA-MM" = mês de vencimento da fatura
+  isInvoicePayment        Boolean @default(false)
+
+  // Parcelamento (cartão ou outras formas)
+  installmentGroupId String?
+  installmentNumber  Int?
+  installmentTotal   Int?
+
+  // Recorrência: a transação "mãe" gera as ocorrências seguintes de forma preguiçosa
+  recurrence         String  @default("NONE") // NONE | WEEKLY | MONTHLY | YEARLY
+  recurrenceParentId String?
+  recurringExpenseId String?
+
+  paid      Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category              Category?              @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account               Account?               @relation("TxAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  toAccount             Account?               @relation("TxToAccount", fields: [toAccountId], references: [id], onDelete: Cascade)
+  creditCard            CreditCard?            @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  creditCardTransaction CreditCardTransaction? @relation(fields: [creditCardTransactionId], references: [id], onDelete: Cascade)
+  recurringExpense      RecurringExpense?      @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([userId, type])
+  @@index([creditCardId, invoiceKey])
+  @@index([recurrenceParentId])
+}
+
+model CreditCard {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String
+  bank       String
+  brand      String?  // visa | mastercard | elo | amex | outros
+  limit      Int
+  closingDay Int
+  dueDay     Int
+  color      String   @default("#18181b")
+  archived   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purchases    CreditCardTransaction[]
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+// Compra no cartão (agrupa as parcelas, que são Transactions com creditCardTransactionId)
+model CreditCardTransaction {
+  id           String   @id @default(cuid())
+  userId       String
+  creditCardId String
+  categoryId   String?
+  description  String
+  totalAmount  Int
+  installments Int      @default(1)
+  purchaseDate DateTime
+  createdAt    DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creditCard   CreditCard    @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  category     Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([creditCardId])
+}
+
+model RecurringExpense {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String
+  amount     Int
+  categoryId String?
+  accountId  String?
+  dueDay     Int
+  dueMonth   Int?     // 1-12, apenas para recorrência anual
+  recurrence String   @default("MONTHLY") // MONTHLY | YEARLY
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category     Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account      Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+model Goal {
+  id            String    @id @default(cuid())
+  userId        String
+  name          String
+  icon          String    @default("🎯")
+  color         String    @default("#6366f1")
+  targetAmount  Int
+  currentAmount Int       @default(0)
+  deadline      DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributions GoalContribution[]
+
+  @@index([userId])
+}
+
+model GoalContribution {
+  id        String   @id @default(cuid())
+  goalId    String
+  amount    Int      // pode ser negativo (resgate)
+  note      String?
+  createdAt DateTime @default(now())
+  goal      Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+}
+
+// Limite mensal por categoria (vale para todos os meses até ser alterado)
+model Budget {
+  id         String   @id @default(cuid())
+  userId     String
+  categoryId String   @unique
+  amount     Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String   // WARNING | INFO | SUCCESS | GOAL | TIP | DANGER
+  title     String
+  message   String
+  href      String?
+  dedupeKey String   // evita alertas duplicados gerados pelo motor de insights
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, read])
+}
+
+// Limitador de tentativas (login, cadastro...) compartilhado entre instâncias serverless
+model RateLimit {
+  key     String   @id
+  count   Int
+  resetAt DateTime
+
+  @@index([resetAt])
+}
